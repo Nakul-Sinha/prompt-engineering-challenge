@@ -22,13 +22,6 @@ OPTIONS_KEY = {"source_token": "source_options",
                "library_token": "library_options"}
 N_SCALAR, N_ATOM = len(SCALARS), len(ATOMS)
 SEEDS = [42, 1, 7]
-AUG_PARAMS = [
-    dict(atom_drop=0.05, count_noise=0.10),
-    dict(atom_drop=0.08, count_noise=0.16),
-    dict(atom_drop=0.11, count_noise=0.22),
-]
-AUG_SEEDS = [5000, 5777, 6554]
-N_AUG = len(AUG_PARAMS)
 
 
 def smiles_vec(s):
@@ -36,13 +29,6 @@ def smiles_vec(s):
     v += [s["atom_counts"][k] for k in ATOMS]
     v += list(s["ngram_buckets"])
     return np.asarray(v, dtype=np.float64)
-
-
-def perturb_vec(vec, rng, atom_drop=0.06, count_noise=0.12):
-    v = vec.astype(np.float64).copy()
-    v[6:15] = np.maximum(0, np.round(v[6:15] * (1 - atom_drop)))
-    noise = rng.poisson(count_noise, size=v.shape) - rng.poisson(count_noise, size=v.shape)
-    return np.maximum(0, v + noise)
 
 
 def _cos(a, b):
@@ -77,26 +63,36 @@ def _pair(cc_vec, cand_vec, vmatch, vmiss, hint):
     return f, (sc_a.sum()+at_a.sum(), ad.sum(), ng_a.sum(), _cos(cc_vec, cand_vec), float(hint))
 
 
-def build_row_field(corrupted_card, support_cards, options, field, rng=None, params=None):
+def _setrel(cand_vec, all_vecs):
+    cent = np.mean(all_vecs, axis=0)
+    dc = np.abs(cand_vec[:15] - cent[:15]).sum()
+    dists = np.array([np.abs(cand_vec[:15] - v[:15]).sum() for v in all_vecs])
+    ds = np.sort(dists)
+    nearest_other = ds[1] if len(ds) > 1 else 0.0
+    dall = np.array([np.abs(cand_vec - v).sum() for v in all_vecs])
+    return [dc, nearest_other, float(dists.mean()), float(dall.std())]
+
+
+def build_row_field(corrupted_card, support_cards, options, field):
     cc_vec = smiles_vec(corrupted_card["smiles_features"])
     cc_vendor = corrupted_card["vendor_family_token"]
     corrupt_tok = corrupted_card[field]
     sup_idx = {s["candidate_token"]: s for s in support_cards if s["repair_field"] == field}
-    pp = params or {}
+    sup_vec = {t: smiles_vec(s["smiles_features"]) for t, s in sup_idx.items()}
+    all_vecs = [sup_vec[t] for t in options if t in sup_vec]
 
     rows, toks, isc = [], [], []
     L1sa, L1all, L1ng, cosall, hints = [], [], [], [], []
     for tok in options:
         s = sup_idx.get(tok)
         if s is not None:
-            cand_vec = smiles_vec(s["smiles_features"])
-            if rng is not None:
-                cand_vec = perturb_vec(cand_vec, rng, **pp)
+            cand_vec = sup_vec[tok]
             cv = s["vendor_family_token"]; hint = s["evidence_rank_hint"]
             vmiss = (cv == "vendor_missing"); vmatch = (cv == cc_vendor and not vmiss)
         else:
             cand_vec = cc_vec.copy(); hint = 99; vmiss = True; vmatch = False
         feat, rel = _pair(cc_vec, cand_vec, vmatch, vmiss, hint)
+        feat = feat + (_setrel(cand_vec, all_vecs) if all_vecs else [0.0, 0.0, 0.0, 0.0])
         rows.append(feat); toks.append(tok); isc.append(1.0 if tok == corrupt_tok else 0.0)
         L1sa.append(rel[0]); L1all.append(rel[1]); L1ng.append(rel[2]); cosall.append(rel[3]); hints.append(rel[4])
 
@@ -132,19 +128,18 @@ def load_rows(path):
     return out
 
 
-def build_field(rows, field, perturb_seed=None, params=None, with_labels=True):
+def build_field(rows, field, with_labels=True):
     Xs, ys, g, meta = [], [], [], []
-    for ri, r in enumerate(rows):
-        rng = np.random.default_rng(perturb_seed + ri) if perturb_seed is not None else None
+    for r in rows:
         X, toks, isc = build_row_field(r["corrupted_card"], r["support_cards"],
-                                       r[OPTIONS_KEY[field]], field, rng, params)
+                                       r[OPTIONS_KEY[field]], field)
         Xs.append(X); g.append(len(toks))
         if with_labels:
             truth = r["answer"][field]
             ys.append(np.array([1.0 if t == truth else 0.0 for t in toks]))
-            meta.append((ri, toks, truth, isc))
+            meta.append((toks, truth, isc))
         else:
-            meta.append((ri, toks, None, isc))
+            meta.append((toks, None, isc))
     return Xs, (np.concatenate(ys) if with_labels else None), g, meta
 
 
@@ -160,21 +155,10 @@ def clf_params(seed):
                 reg_lambda=1.0, random_state=seed, n_jobs=-1, verbosity=-1)
 
 
-def assemble_training(rows, field):
-    datasets = [build_field(rows, field, None)]
-    for k in range(N_AUG):
-        datasets.append(build_field(rows, field, AUG_SEEDS[k], AUG_PARAMS[k]))
-    Xtr, ytr, gtr = [], [], []
-    for Xs, y, g, meta in datasets:
-        Xtr += Xs
-        ytr.append(y)
-        gtr += g
-    return np.vstack(Xtr), np.concatenate(ytr), gtr
-
-
 def train_predict_field(train_rows, test_rows, field):
-    Xtr, ytr, gtr = assemble_training(train_rows, field)
-    Xs_te, _, g_te, meta_te = build_field(test_rows, field, None, with_labels=False)
+    Xs_tr, ytr, gtr, _ = build_field(train_rows, field)
+    Xtr = np.vstack(Xs_tr)
+    Xs_te, _, g_te, meta_te = build_field(test_rows, field, with_labels=False)
     bounds = np.concatenate([[0], np.cumsum(g_te)])
     Xte = np.vstack(Xs_te)
 
@@ -194,7 +178,7 @@ def train_predict_field(train_rows, test_rows, field):
         ens[s] = acc / (len(score_cols)*n)
 
     preds = {}
-    for ri, toks, _, isc in meta_te:
+    for ri, (toks, _, isc) in enumerate(meta_te):
         s = ens[bounds[ri]:bounds[ri+1]].copy(); s[isc.astype(bool)] = -np.inf
         preds[test_rows[ri]["id"]] = toks[int(np.argmax(s))]
     return preds
@@ -204,7 +188,7 @@ def main():
     print("Loading data...")
     train_rows = load_rows(ROOT / "train.csv")
     test_rows = load_rows(ROOT / "test.csv")
-    print(f"train={len(train_rows)} test={len(test_rows)} (N_AUG={N_AUG}, seeds={SEEDS})")
+    print(f"train={len(train_rows)} test={len(test_rows)} (seeds={SEEDS})")
 
     field_preds = {}
     for f in FIELDS:
