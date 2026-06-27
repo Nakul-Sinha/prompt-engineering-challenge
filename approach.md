@@ -1,4 +1,4 @@
-# Approach — Anonymized Perturbation-Card Metadata Repair
+# Approach: Anonymized Perturbation-Card Metadata Repair
 
 **Recommended time spent:** 9 hours
 
@@ -12,7 +12,7 @@ accuracy (fields are ~independent given the evidence, so this maximises expected
 all-three).
 
 Tokens are salted per row (zero cross-row overlap), so there is no global mapping
-to memorise — every row is solved from its own evidence. I framed it as a
+to memorise, every row is solved from its own evidence. I framed it as a
 **learned candidate-ranking** problem: for each field, score every candidate by how
 well its support card matches the corrupted card, and pick the best non-corrupted
 candidate.
@@ -26,8 +26,8 @@ test (candidate-distance median 12.8→15.0) and test molecules are slightly sma
 keyed to train's absolute distance scale over-fits and degrades on test.
 
 I built a **shift-simulation proxy** (perturb candidate structure features: shrink
-molecule + integer count noise) that reproduces the gap — the non-robust model
-scores ~0.54 clean but ~0.41–0.46 under simulated shift — and used it as the
+molecule + integer count noise) that reproduces the gap, the non-robust model
+scores ~0.54 clean but ~0.41 to 0.46 under simulated shift, and used it as the
 selection metric instead of optimistic clean CV.
 
 ## Model architecture
@@ -59,7 +59,7 @@ and an `is_corrupt` flag.
    observed shift; all choices were made on the shift-aware metric.
 
 ## What worked
-- Shift-augmentation — the decisive lever (+0.07–0.10 on the realistic proxy).
+- Shift-augmentation, the decisive lever (+0.07 to 0.10 on the realistic proxy).
 - Structure-similarity ranking is the core signal; vendor match strongly
   disambiguates `source` (81% match when the corrupted vendor is present).
 - Corrupted-token exclusion and atom-composition fractions: clean, reliable gains.
@@ -69,11 +69,11 @@ and an `is_corrupt` flag.
   (mutual distance 5.9 vs 21.2 for random pairs), but the mutual-consistency term is
   redundant with closeness-to-corrupted and *hurts* triple selection.
 - **Stripping to scale-invariant features only.** Removing absolute features lowered
-  both clean and shift scores — the richer features carry transferable signal; the
+  both clean and shift scores, the richer features carry transferable signal; the
   fix for shift was augmentation, not feature removal.
 - **Neural listwise ranker.** ~On par with GBDT but far slower; no gain, dropped.
 - **XGBoost/CatBoost diversity.** Model families are equivalent on the shift proxy
-  (all 0.52–0.53); a diverse blend added only +0.002, not worth extra runtime
+  (all 0.52 to 0.53); a diverse blend added only +0.002, not worth extra runtime
   dependencies.
 - **`name_type` (~0.72) is near its ceiling**: its candidates' vendors are mostly
   "missing" and its structure link is weak; `qc_context` is constant within a row so
@@ -97,7 +97,7 @@ the real shift.)
 
 ## Compliance
 Uses only the public CSVs. Pure learned LightGBM ranking on the provided
-structure/vendor/evidence features — no compound/structure/id lookups, no hardcoded
+structure/vendor/evidence features, no compound/structure/id lookups, no hardcoded
 task-id→answer maps, no leaderboard probing, no metadata fingerprinting or row-order
 leakage. `solution.py` reads `./dataset/public/` and regenerates
 `./working/submission.csv` end-to-end (~4 min CPU). The submitted CSV is exactly what

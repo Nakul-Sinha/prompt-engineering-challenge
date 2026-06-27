@@ -1,4 +1,4 @@
-# Notes — Anonymized Perturbation-Card Metadata Repair
+# Notes: Anonymized Perturbation-Card Metadata Repair
 
 ## Challenge facts
 - **Task:** row-local token repair. For each row choose the true `source_token`,
@@ -13,11 +13,11 @@
   `score = mean(row_score)`. Higher is better; max 1.0.
   → **Dominated by getting all three fields exactly right.** Maximizing each
   field's top-1 accuracy maximizes expected all-three (fields ~independent
-  given features — confirmed: per-field-product ≈ observed all-three).
+  given features, confirmed: per-field-product ≈ observed all-three).
 - **Rules / not allowed:** only the public CSVs; no external lookups, no
   compound/structure/id lookups, no hardcoded task-id→answer maps, no leaderboard
   probing. Tokens are salted **per row** (zero cross-row token overlap), so no
-  global token mapping is possible — must solve from each row's own evidence.
+  global token mapping is possible, must solve from each row's own evidence.
 
 ## Data structure understanding
 - `corrupted_card`: carries the **true compound's** `smiles_features`
@@ -26,7 +26,7 @@
   tokens (decoys).
 - `support_cards`: exactly one card per candidate token per field
   (27+32+10 = 69). Each has `repair_field`, `candidate_token`,
-  `vendor_family_token`, `smiles_features`, `evidence_rank_hint` (0–6).
+  `vendor_family_token`, `smiles_features`, `evidence_rank_hint` (0 to 6).
 - `qc_context` is only on the corrupted card (constant across a row's
   candidates) → not useful for ranking candidates.
 
@@ -72,11 +72,11 @@ the private split.
 - **v1** (no shift handling): clean CV 0.54 → **pre-check 0.41** (over-fit to train
   distance scale).
 - **v2** (shift-robust: mix3 augmentation, lgbm rank+clf, 3 seeds): honest shift-CV
-  **0.525** (all-three 0.517). Stable 0.517–0.523 across shift-proxy variants.
+  **0.525** (all-three 0.517). Stable 0.517 to 0.523 across shift-proxy variants.
 - **v3 (final): two augmentation strategies blended (mix3 + strong2).** Adding a
   strong-augmented model set to the ensemble is consistently >= mix3-alone on every
   shift level (same 0.5171 vs 0.5156, real 0.5285 vs 0.5252, strong 0.5121 vs 0.5040)
-  — a small, uniform gain that hedges shift-magnitude uncertainty. This is
+, a small, uniform gain that hedges shift-magnitude uncertainty. This is
   `working/submission.csv`; 300 rows; passes validator; reproduced by an isolated
   smoke test (solution.py + dataset/public only).
 
@@ -85,14 +85,14 @@ the private split.
   (p=0.79). The "pseudo-test" split (train on least-test-like rows, evaluate on the
   most-test-like) **reproduces the real LB**: baseline proxy ALL3 0.419 / score 0.429
   vs real pre-check 0.4159. Every prior CV (0.53) was optimistic; this one isn't.
-- **Gap is genuine OOD**, not leakage (refuted 3 ways) — test molecules are smaller/
+- **Gap is genuine OOD**, not leakage (refuted 3 ways), test molecules are smaller/
   structurally shifted; name & source on small molecules are intrinsically ambiguous.
   The model already BEATS pure structural NN on every field (vendor + learned).
 - **Only lever that transferred: SET-RELATIVE features** (candidate vs candidate-set
-  centroid / nearest-other / intra-set spread) — treats name_type as category-membership
+  centroid / nearest-other / intra-set spread), treats name_type as category-membership
   not nearest-neighbour. Proxy name 0.581 -> 0.619.
 - **Pre-check results (real scoring distribution):** baseline 0.4159, setrel_name 0.4158
-  (proxy gain did NOT transfer), **setrel_all 0.4255** (transferred — best on both proxy
+  (proxy gain did NOT transfer), **setrel_all 0.4255** (transferred, best on both proxy
   and pre-check). Final submission + `solution.py` = **setrel_all** (set-relative on all
   fields). Realized gain ~+0.01 over baseline; honest ceiling for these features ~0.42-0.45.
 - Grading note: public and private are both from the main dataset (same distribution);
@@ -113,9 +113,9 @@ the private split.
 - More ngram-derived shape features / monotonic constraints.
 - H100 only useful for large sweeps; method (signal) is the bottleneck, not compute.
 
-## v2 — Distribution-shift diagnosis & shift-robust training (post 0.41 pre-check)
+## v2: Distribution-shift diagnosis & shift-robust training (post 0.41 pre-check)
 
-The pre-submission check scored **0.41** while local 5-fold CV said 0.54 — a real
+The pre-submission check scored **0.41** while local 5-fold CV said 0.54, a real
 gap. Diagnosis:
 
 - **library_token is distribution-shifted train→test.** The true library
@@ -126,11 +126,11 @@ gap. Diagnosis:
   over-fits and drops on the shifted test.
 - Built a **shift-simulation proxy** (perturb candidate structure features: shrink
   molecule + integer count noise). It reproduces the gap: current model scores
-  clean-CV 0.538 but shift-CV 0.45 — matching the real 0.41.
+  clean-CV 0.538 but shift-CV 0.45, matching the real 0.41.
 - **Calibration:** real lib median 15.0 sits between sim "same"(.06/.12→14.3) and
   "strong"(.10/.22→15.6); the real shift is near the *strong* end.
 
-**Fix that worked — training-time augmentation.** Add N_AUG perturbed copies of
+**Fix that worked, training-time augmentation.** Add N_AUG perturbed copies of
 each training row so the ranker learns scale-invariant boundaries. Shift-CV
 0.46 → 0.53. Honest check (train on shift family A, evaluate on a *different*
 family B) confirms the robustness is genuine, not memorisation:
@@ -147,13 +147,13 @@ Augmentation helps on every unseen shift family. Since the real shift is near
 "strong", stronger/mixed augmentation is being tuned (exp_augmix).
 
 **Model bake-off (shift-CV, n_aug=2):** lgbm_clf 0.533 (best single), lgbm_rank
-0.527, xgb 0.524, cat 0.514; naive all-6 ensemble 0.525 (dilutes — curated >
+0.527, xgb 0.524, cat 0.514; naive all-6 ensemble 0.525 (dilutes, curated >
 bloated). Curated weighted blend under search.
 
 **Dead ends:** joint cross-field consistency (true cards cluster at dist 5.9 vs
 21.2 random, but the mutual term is redundant with closeness-to-corrupted and
 hurts); pure scale-invariant feature sets (stripping absolute features lowers both
-clean and shift — richer features carry transferable signal); neural listwise
+clean and shift, richer features carry transferable signal); neural listwise
 ranker (~on par with GBDT, far slower, dropped).
 
 ## Compliance
