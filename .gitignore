@@ -1,4 +1,4 @@
-# Secrets / credentials — never commit (live SSH key + tokens live under G:/Datacurve/eris)
+# Secrets and credentials: never commit. Keys and tokens stay outside the repo.
 *h100_friend_key*
 *.pem
 *.ppk
@@ -16,7 +16,7 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 
-# Local Claude config and intermediate artifacts
+# Local tool config and intermediate artifacts
 .claude/
 working/submission_v2_*.csv
 research/*.npz
