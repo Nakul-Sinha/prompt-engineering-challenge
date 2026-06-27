@@ -20,3 +20,6 @@ __pycache__/
 .claude/
 working/submission_v2_*.csv
 research/*.npz
+
+# Candidate submission variants (keep only the official submission.csv)
+working/submission_*.csv
