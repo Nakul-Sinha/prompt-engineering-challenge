@@ -1,0 +1,22 @@
+# Secrets / credentials — never commit (live SSH key + tokens live under G:/Datacurve/eris)
+*h100_friend_key*
+*.pem
+*.ppk
+**/id_rsa*
+.env
+*token*
+*secret*
+
+# Large data artifacts (kept locally; reproducible from solution)
+dataset/public/train.csv
+dataset/public/test.csv
+
+# Python / runtime
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Local Claude config and intermediate artifacts
+.claude/
+working/submission_v2_*.csv
+research/*.npz
